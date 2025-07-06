@@ -15,11 +15,7 @@ const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 60000;
 
 app.use(cors());
 
-app.get("/", (req, res) => {
-  res.send("✅ MailDropHQ Backend is running.");
-});
-
-// Generate a new email address
+// Generate email
 app.get("/api/generate", async (req, res) => {
   await checkPrimary();
   console.log("Using engine:", activeEngine);
@@ -27,9 +23,16 @@ app.get("/api/generate", async (req, res) => {
   try {
     if (activeEngine === "1secmail") {
       const response = await fetch("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1");
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("1SecMail returned non-JSON response");
+      }
+
       const [email] = await response.json();
       const [prefix, domain] = email.split("@");
       return res.json({ prefix, domain });
+
     } else if (activeEngine === "mail.tm") {
       const email = generateRandomEmail();
       const response = await fetch("https://api.mail.tm/accounts", {
@@ -38,6 +41,7 @@ app.get("/api/generate", async (req, res) => {
         body: JSON.stringify({ address: email, password: "password123" }),
       });
       const data = await response.json();
+
       if (data.address) {
         const [prefix, domain] = data.address.split("@");
         return res.json({ prefix, domain });
@@ -51,9 +55,9 @@ app.get("/api/generate", async (req, res) => {
   }
 });
 
-// List inbox messages
+// Fetch inbox messages
 app.get("/api/messages", async (req, res) => {
-  const { prefix, domain } = req.query;
+  const { prefix, domain = "1secmail.com" } = req.query;
   await checkPrimary();
   console.log("Checking inbox for:", prefix, "Engine:", activeEngine);
 
@@ -63,8 +67,14 @@ app.get("/api/messages", async (req, res) => {
 
   if (activeEngine === "1secmail") {
     try {
-      const inboxUrl = `https://www.1secmail.com/api/v1/?action=getMessages&login=${prefix}&domain=${domain || "1secmail.com"}`;
+      const inboxUrl = `https://www.1secmail.com/api/v1/?action=getMessages&login=${prefix}&domain=${domain}`;
       const response = await fetch(inboxUrl);
+      const contentType = response.headers.get("content-type") || "";
+
+      if (!contentType.includes("application/json")) {
+        throw new Error("1SecMail inbox returned non-JSON response");
+      }
+
       const data = await response.json();
       return res.json(data);
     } catch (err) {
@@ -72,24 +82,29 @@ app.get("/api/messages", async (req, res) => {
       return res.status(500).json({ error: "1SecMail returned an error." });
     }
   } else if (activeEngine === "mail.tm") {
-    return res.status(501).json({ error: "Fallback engine inbox not implemented yet." });
+    return res.status(501).json({ error: "Fallback inbox not yet implemented." });
   } else {
-    return res.status(500).json({ error: "All inbox engines are unavailable." });
+    return res.status(500).json({ error: "All inbox engines unavailable." });
   }
 });
 
-// View a full message
+// Fetch full message
 app.get("/api/message", async (req, res) => {
-  const { prefix, domain, id } = req.query;
-
-  if (!prefix || !domain || !id) {
-    return res.status(400).json({ error: "Missing required query params: prefix, domain, id" });
+  const { id, prefix, domain = "1secmail.com" } = req.query;
+  if (!id || !prefix) {
+    return res.status(400).json({ error: "Missing message ID or prefix." });
   }
 
   if (activeEngine === "1secmail") {
     try {
       const url = `https://www.1secmail.com/api/v1/?action=readMessage&login=${prefix}&domain=${domain}&id=${id}`;
       const response = await fetch(url);
+      const contentType = response.headers.get("content-type") || "";
+
+      if (!contentType.includes("application/json")) {
+        throw new Error("1SecMail readMessage returned non-JSON response");
+      }
+
       const data = await response.json();
       return res.json(data);
     } catch (err) {
@@ -103,15 +118,14 @@ app.get("/api/message", async (req, res) => {
   }
 });
 
-// Util: Random email generator for mail.tm
+// Utility: generate random mail.tm email
 function generateRandomEmail() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${name}@kpa6.com`; // ✅ Use a working Mail.tm domain
+  return `${name}@mail.tm`;
 }
 
-
-// Util: check 1secmail availability
+// Utility: check if 1secmail is still alive
 async function checkPrimary() {
   const now = Date.now();
   if (now - lastCheck < CHECK_INTERVAL) return;
@@ -119,12 +133,13 @@ async function checkPrimary() {
   lastCheck = now;
   try {
     const res = await fetch("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1", { timeout: 3000 });
-    if (res.ok) {
+    const contentType = res.headers.get("content-type") || "";
+    if (res.ok && contentType.includes("application/json")) {
       primaryAvailable = true;
       activeEngine = primaryEngine;
       console.log("✅ 1SecMail available — using primary.");
     } else {
-      throw new Error("Primary not OK");
+      throw new Error("1SecMail response invalid");
     }
   } catch {
     primaryAvailable = false;
@@ -133,6 +148,7 @@ async function checkPrimary() {
   }
 }
 
+// Start the server
 app.listen(port, () => {
   console.log(`✅ MailDropHQ Backend is running on port ${port}`);
 });
