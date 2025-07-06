@@ -15,6 +15,7 @@ const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 60000;
 
 app.use(cors());
 
+// === Generate email ===
 app.get("/api/generate", async (req, res) => {
   await checkPrimary();
   console.log("Using engine:", activeEngine);
@@ -46,20 +47,27 @@ app.get("/api/generate", async (req, res) => {
   }
 });
 
+// === Get inbox messages ===
 app.get("/api/messages", async (req, res) => {
   const { prefix } = req.query;
   await checkPrimary();
-  console.log("Checking inbox for:", prefix, "Engine:", activeEngine);
 
-  if (!prefix) {
-    return res.status(400).json({ error: "Missing email prefix." });
-  }
+  if (!prefix) return res.status(400).json({ error: "Missing email prefix." });
+
+  console.log("Checking inbox for:", prefix, "Engine:", activeEngine);
 
   if (activeEngine === "1secmail") {
     try {
       const domain = "1secmail.com";
       const inboxUrl = `https://www.1secmail.com/api/v1/?action=getMessages&login=${prefix}&domain=${domain}`;
       const response = await fetch(inboxUrl);
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error("Inbox fetch error:", response.status, text);
+        return res.status(response.status).json({ error: "1SecMail returned an error." });
+      }
+
       const data = await response.json();
       return res.json(data);
     } catch (err) {
@@ -67,30 +75,40 @@ app.get("/api/messages", async (req, res) => {
       return res.status(500).json({ error: "Failed to load 1SecMail inbox." });
     }
   } else if (activeEngine === "mail.tm") {
-    return res.status(501).json({ error: "Fallback engine inbox not fully implemented." });
+    return res.status(501).json({ error: "Fallback engine inbox not implemented yet." });
   } else {
     return res.status(500).json({ error: "All inbox engines are unavailable." });
   }
 });
 
+// === View a full message ===
 app.get("/api/message", async (req, res) => {
-  const { id, prefix } = req.query;
-  const domain = "1secmail.com";
+  const { prefix, domain, id } = req.query;
+  await checkPrimary();
 
-  if (!id || !prefix) {
-    return res.status(400).json({ error: "Missing id or prefix." });
+  if (!prefix || !domain || !id) {
+    return res.status(400).json({ error: "Missing required query parameters." });
   }
 
   if (activeEngine === "1secmail") {
     try {
       const url = `https://www.1secmail.com/api/v1/?action=readMessage&login=${prefix}&domain=${domain}&id=${id}`;
       const response = await fetch(url);
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error("Message fetch error:", response.status, text);
+        return res.status(response.status).json({ error: "1SecMail returned an error." });
+      }
+
       const data = await response.json();
       return res.json(data);
+
     } catch (err) {
       console.error("Failed to fetch message:", err);
       return res.status(500).json({ error: "Failed to load message." });
     }
+
   } else if (activeEngine === "mail.tm") {
     return res.status(501).json({ error: "Fallback engine inbox view not implemented yet." });
   } else {
@@ -98,12 +116,7 @@ app.get("/api/message", async (req, res) => {
   }
 });
 
-function generateRandomEmail() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${name}@mail.tm`;
-}
-
+// === Fallback logic check ===
 async function checkPrimary() {
   const now = Date.now();
   if (now - lastCheck < CHECK_INTERVAL) return;
@@ -125,6 +138,14 @@ async function checkPrimary() {
   }
 }
 
+// === Random email generator ===
+function generateRandomEmail() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `${name}@mail.tm`;
+}
+
+// === Start server ===
 app.listen(port, () => {
   console.log(`✅ MailDropHQ Backend is running on port ${port}`);
 });
