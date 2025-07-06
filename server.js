@@ -26,7 +26,7 @@ app.get("/api/generate", async (req, res) => {
       const [prefix, domain] = email.split("@");
       return res.json({ prefix, domain });
     } else if (activeEngine === "mail.tm") {
-      const email = await generateRandomEmail();  // <- FIXED: await and dynamic domain
+      const email = generateRandomEmail();
       const response = await fetch("https://api.mail.tm/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -73,22 +73,35 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
-// ✅ FIXED: Dynamically fetch a valid domain from mail.tm
-async function generateRandomEmail() {
-  try {
-    const res = await fetch("https://api.mail.tm/domains");
-    const data = await res.json();
-    const domain = data["hydra:member"]?.[0]?.domain;
+app.get("/api/message", async (req, res) => {
+  const { id, prefix } = req.query;
+  const domain = "1secmail.com";
 
-    if (!domain) throw new Error("No valid mail.tm domain found");
-
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-    return `${name}@${domain}`;
-  } catch (err) {
-    console.error("Mail.tm domain fetch failed:", err);
-    throw err;
+  if (!id || !prefix) {
+    return res.status(400).json({ error: "Missing id or prefix." });
   }
+
+  if (activeEngine === "1secmail") {
+    try {
+      const url = `https://www.1secmail.com/api/v1/?action=readMessage&login=${prefix}&domain=${domain}&id=${id}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      return res.json(data);
+    } catch (err) {
+      console.error("Failed to fetch message:", err);
+      return res.status(500).json({ error: "Failed to load message." });
+    }
+  } else if (activeEngine === "mail.tm") {
+    return res.status(501).json({ error: "Fallback engine inbox view not implemented yet." });
+  } else {
+    return res.status(500).json({ error: "All inbox engines are unavailable." });
+  }
+});
+
+function generateRandomEmail() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `${name}@mail.tm`;
 }
 
 async function checkPrimary() {
@@ -111,10 +124,7 @@ async function checkPrimary() {
     console.warn("⚠️ Falling back to", fallbackEngine);
   }
 }
-app.get("/", (req, res) => {
-  res.send("✅ MailDropHQ Backend is running.");
-});
 
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`✅ MailDropHQ Backend is running on port ${port}`);
 });
