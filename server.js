@@ -111,6 +111,9 @@ async function checkPrimary() {
     console.warn("⚠️ Falling back to", fallbackEngine);
   }
 }
+app.get("/", (req, res) => {
+  res.send("✅ MailDropHQ Backend is running.");
+});
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
