@@ -26,7 +26,7 @@ app.get("/api/generate", async (req, res) => {
       const [prefix, domain] = email.split("@");
       return res.json({ prefix, domain });
     } else if (activeEngine === "mail.tm") {
-      const email = generateRandomEmail();
+      const email = await generateRandomEmail();  // <- FIXED: await and dynamic domain
       const response = await fetch("https://api.mail.tm/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -73,10 +73,22 @@ app.get("/api/messages", async (req, res) => {
   }
 });
 
-function generateRandomEmail() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${name}@mail.tm`;
+// ✅ FIXED: Dynamically fetch a valid domain from mail.tm
+async function generateRandomEmail() {
+  try {
+    const res = await fetch("https://api.mail.tm/domains");
+    const data = await res.json();
+    const domain = data["hydra:member"]?.[0]?.domain;
+
+    if (!domain) throw new Error("No valid mail.tm domain found");
+
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    return `${name}@${domain}`;
+  } catch (err) {
+    console.error("Mail.tm domain fetch failed:", err);
+    throw err;
+  }
 }
 
 async function checkPrimary() {
