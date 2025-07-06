@@ -1,0 +1,36 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Get a free 10-minute temporary email address instantly. No registration needed.">
+  <meta property="og:title" content="MailDropHQ - Free Temporary Email">
+  <meta property="og:description" content="Fast, private 10-minute email inbox. Avoid spam and stay safe online.">
+  <meta name="robots" content="index, follow">
+  <link rel="stylesheet" href="style.css" />
+  <title>MailDropHQ - Temp Email</title>
+</head>
+<body>
+  <div id="app">
+    <h1>MailDropHQ</h1>
+    <div id="email-section">
+      <label for="emailInput">Your Temp Email:</label>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <input id="emailInput" value="" readonly />
+        <button onclick="copyEmail()">📋 Copy</button>
+      </div>
+      <button onclick="showCustomInput()">👤 Use your own email</button>
+    </div>
+    <div id="customEmailBox" style="display: none; margin-top: 10px;">
+      <input id="customName" placeholder="Enter custom name (a-z, 0-9, _)" />
+      <button onclick="useCustomEmail()">✅ Set Email</button>
+      <p id="emailError" style="color: red; display: none;"></p>
+    </div>
+    <div id="timer">Expires in: <span id="countdown">10:00</span></div>
+    <h2>Inbox</h2>
+    <div id="inbox">Loading messages...</div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
