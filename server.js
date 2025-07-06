@@ -35,8 +35,9 @@ app.get("/api/generate", async (req, res) => {
 function generateRandomEmail() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${name}@eztest.email`;
+  return `${name}@punkproof.com`;
 }
+
 
 // Start the server
 app.listen(port, () => {
