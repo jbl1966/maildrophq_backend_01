@@ -107,8 +107,9 @@ app.get("/api/message", async (req, res) => {
 function generateRandomEmail() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${name}@mail.tm`;
+  return `${name}@kpa6.com`; // ✅ Use a working Mail.tm domain
 }
+
 
 // Util: check 1secmail availability
 async function checkPrimary() {
