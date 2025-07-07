@@ -69,11 +69,10 @@ app.get("/api/generate", async (req, res) => {
     try {
       const domainRes = await fetch("https://api.mail.tm/domains");
       const domainData = await domainRes.json();
-      const domain = domainData["hydra:member"][0].domain;
-      const prefix = requestedPrefix && isValidPrefix(requestedPrefix)
-        ? requestedPrefix
-        : Math.random().toString(36).substring(2, 10);
-      const address = `${prefix}@${domain}`;
+      const mailTmDomain = domainData["hydra:member"][0].domain;
+
+      const prefix = requestedPrefix || Math.random().toString(36).substring(2, 10);
+      const address = `${prefix}@${mailTmDomain}`;
       const password = "password123";
 
       const accountRes = await fetch("https://api.mail.tm/accounts", {
@@ -91,28 +90,23 @@ app.get("/api/generate", async (req, res) => {
 
         const loginData = await loginRes.json();
         mailTmToken = loginData.token;
-        mailTmAccount = { prefix, domain, address, id: loginData.id };
+        mailTmAccount = { prefix, domain: mailTmDomain, address, id: loginData.id };
 
-        return res.json({ prefix, domain });
+        return res.json({ prefix, domain: mailTmDomain });
       } else {
-        throw new Error("Account creation failed");
+        throw new Error("mail.tm account creation failed");
       }
     } catch (err) {
-      console.error("❌ mail.tm generate failed:", err.message);
+      console.error("mail.tm failed, falling back to 1SecMail", err.message);
       activeEngine = "1secmail";
     }
   }
 
+  // Fallback or 1SecMail
   if (activeEngine === "1secmail") {
-    try {
-      const prefix = requestedPrefix && isValidPrefix(requestedPrefix)
-        ? requestedPrefix
-        : Math.random().toString(36).substring(2, 10);
-      const domain = "1secmail.com";
-      return res.json({ prefix, domain });
-    } catch (err) {
-      return res.status(500).json({ error: "1SecMail generation failed." });
-    }
+    const prefix = requestedPrefix || Math.random().toString(36).substring(2, 10);
+    const domain = "1secmail.com";
+    return res.json({ prefix, domain });
   }
 
   return res.status(500).json({ error: "No inbox engines available." });
