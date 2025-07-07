@@ -1,106 +1,190 @@
+// server.js
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
+import fetch from "node-fetch";
+import bodyParser from "body-parser";
 
 const app = express();
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-const accounts = new Map(); // Key: prefix, Value: { id, token, address }
+let activeEngine = "mail.tm";
+let mailTmToken = null;
+let mailTmAccount = null;
+let mailTmDomain = "punkproof.com";
 
-function generateRandomEmail() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `${name}@punkproof.com`;
-}
-
-app.get("/api/generate", async (req, res) => {
+// Initialize a mail.tm account
+async function initMailTm() {
   try {
-    const address = generateRandomEmail();
+    const domainRes = await fetch("https://api.mail.tm/domains");
+    const domainData = await domainRes.json();
+    mailTmDomain = domainData["hydra:member"][0].domain;
+
+    const prefix = Math.random().toString(36).substring(2, 10);
+    const address = `${prefix}@${mailTmDomain}`;
     const password = "password123";
 
-    const register = await fetch("https://api.mail.tm/accounts", {
+    const accountRes = await fetch("https://api.mail.tm/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address, password }),
     });
 
-    const regData = await register.json();
-    if (!regData.address) {
-      throw new Error("Registration failed");
+    if (accountRes.status === 201) {
+      const loginRes = await fetch("https://api.mail.tm/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, password }),
+      });
+
+      const loginData = await loginRes.json();
+      mailTmToken = loginData.token;
+      mailTmAccount = { prefix, domain: mailTmDomain, address, id: loginData.id };
+      console.log("✅ mail.tm account created:", mailTmAccount);
+    } else {
+      throw new Error("Account creation failed");
     }
-
-    const login = await fetch("https://api.mail.tm/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, password }),
-    });
-
-    const tokenData = await login.json();
-    if (!tokenData.token) {
-      throw new Error("Login failed");
-    }
-
-    const [prefix, domain] = regData.address.split("@");
-    accounts.set(prefix, {
-      id: regData.id,
-      token: tokenData.token,
-      address: regData.address,
-    });
-
-    return res.json({ prefix, domain });
   } catch (err) {
-    console.error("Email generation error:", err);
-    return res.status(500).json({ error: "Email generation failed." });
+    console.error("❌ mail.tm init failed:", err.message);
+    activeEngine = "1secmail";
   }
+}
+
+// Validate email prefix
+function isValidPrefix(prefix) {
+  return /^[a-zA-Z0-9._-]{3,30}$/.test(prefix);
+}
+
+// Generate email (random or with custom prefix)
+app.get("/api/generate", async (req, res) => {
+  const requestedPrefix = req.query.prefix;
+
+  if (activeEngine === "mail.tm") {
+    try {
+      const domainRes = await fetch("https://api.mail.tm/domains");
+      const domainData = await domainRes.json();
+      const domain = domainData["hydra:member"][0].domain;
+      const prefix = requestedPrefix && isValidPrefix(requestedPrefix)
+        ? requestedPrefix
+        : Math.random().toString(36).substring(2, 10);
+      const address = `${prefix}@${domain}`;
+      const password = "password123";
+
+      const accountRes = await fetch("https://api.mail.tm/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, password }),
+      });
+
+      if (accountRes.status === 201) {
+        const loginRes = await fetch("https://api.mail.tm/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address, password }),
+        });
+
+        const loginData = await loginRes.json();
+        mailTmToken = loginData.token;
+        mailTmAccount = { prefix, domain, address, id: loginData.id };
+
+        return res.json({ prefix, domain });
+      } else {
+        throw new Error("Account creation failed");
+      }
+    } catch (err) {
+      console.error("❌ mail.tm generate failed:", err.message);
+      activeEngine = "1secmail";
+    }
+  }
+
+  if (activeEngine === "1secmail") {
+    try {
+      const prefix = requestedPrefix && isValidPrefix(requestedPrefix)
+        ? requestedPrefix
+        : Math.random().toString(36).substring(2, 10);
+      const domain = "1secmail.com";
+      return res.json({ prefix, domain });
+    } catch (err) {
+      return res.status(500).json({ error: "1SecMail generation failed." });
+    }
+  }
+
+  return res.status(500).json({ error: "No inbox engines available." });
 });
 
+// Get inbox
 app.get("/api/messages", async (req, res) => {
-  const { prefix } = req.query;
+  const { prefix, domain } = req.query;
 
-  if (!accounts.has(prefix)) {
-    return res.status(404).json({ error: "Unknown email prefix." });
+  if (activeEngine === "mail.tm") {
+    try {
+      const response = await fetch("https://api.mail.tm/messages", {
+        headers: { Authorization: `Bearer ${mailTmToken}` },
+      });
+      const data = await response.json();
+      return res.json(data["hydra:member"]);
+    } catch (err) {
+      console.error("mail.tm inbox error:", err.message);
+      activeEngine = "1secmail";
+    }
   }
 
-  const { token } = accounts.get(prefix);
-
-  try {
-    const response = await fetch("https://api.mail.tm/messages", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const data = await response.json();
-    return res.json(data["hydra:member"] || []);
-  } catch (err) {
-    console.error("Inbox fetch error:", err);
-    return res.status(500).json({ error: "Failed to load inbox." });
+  if (activeEngine === "1secmail") {
+    try {
+      const response = await fetch(
+        `https://www.1secmail.com/api/v1/?action=getMessages&login=${prefix}&domain=${domain}`
+      );
+      const data = await response.json();
+      return res.json(data);
+    } catch (err) {
+      return res.status(500).json({ error: "1SecMail inbox error." });
+    }
   }
+
+  return res.status(500).json({ error: "No inbox engines available." });
 });
 
+// View full message
 app.get("/api/message", async (req, res) => {
-  const { prefix, id } = req.query;
+  const { prefix, domain, id } = req.query;
 
-  if (!accounts.has(prefix)) {
-    return res.status(404).json({ error: "Unknown email prefix." });
+  if (activeEngine === "mail.tm") {
+    try {
+      const response = await fetch(`https://api.mail.tm/messages/${id}`, {
+        headers: { Authorization: `Bearer ${mailTmToken}` },
+      });
+      const data = await response.json();
+      return res.json(data);
+    } catch (err) {
+      console.error("mail.tm message error:", err.message);
+      return res.status(500).json({ error: "mail.tm failed to load message." });
+    }
   }
 
-  const { token } = accounts.get(prefix);
-
-  try {
-    const response = await fetch(`https://api.mail.tm/messages/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const data = await response.json();
-    return res.json(data);
-  } catch (err) {
-    console.error("Message fetch error:", err);
-    return res.status(500).json({ error: "Failed to load message." });
+  if (activeEngine === "1secmail") {
+    try {
+      const response = await fetch(
+        `https://www.1secmail.com/api/v1/?action=readMessage&login=${prefix}&domain=${domain}&id=${id}`
+      );
+      const data = await response.json();
+      return res.json(data);
+    } catch (err) {
+      return res.status(500).json({ error: "1SecMail failed to load message." });
+    }
   }
+
+  return res.status(500).json({ error: "No inbox engines available." });
 });
 
-app.listen(port, () => {
-  console.log(`✅ MailDropHQ Backend is running on port ${port}`);
+// Fallback homepage
+app.get("/", (req, res) => {
+  res.send("✅ MailDropHQ Backend is running.");
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`✅ MailDropHQ Backend is running on port ${PORT}`);
+  initMailTm();
 });
